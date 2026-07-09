@@ -1,0 +1,17 @@
+[package]
+name = "aggregator2"
+version = "1.0.0"
+edition = "2024"
+
+[dependencies]
+rust_decimal = "1.42.1"
+chrono = "0.4.45"
+anyhow = { version="1.0.103", features=["std", "backtrace"] }
+async-trait = "0.1.89"
+tokio = { version="1.52.3", features = ["full"] }
+toml = "1.1.2"
+serde = { version = "1.0", features = ["derive"] }
+
+[build-dependencies]
+serde = { version = "1.0", features = ["derive"] }
+toml = "1.1.2"
