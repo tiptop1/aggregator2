@@ -25,6 +25,7 @@ pub struct CandleFields {
     pub high: String,
     pub low: String,
     pub close: String,
+    pub volume: Option<String>
 }
 
 pub fn read_configuration(file_path: &PathBuf) -> Result<Config> {
