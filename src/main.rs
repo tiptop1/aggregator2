@@ -1,6 +1,6 @@
 use aggregator2::config::read_configuration;
 use anyhow::Result;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::env::{args, var_os};
 
 const CONFIG_FILE: &str = "config.toml";
