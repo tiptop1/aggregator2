@@ -1,20 +1,11 @@
 use anyhow::{Result, bail, anyhow};
-use reqwest::{Client, StatusCode, Url, header::HeaderMap};
-use rust_decimal::{Decimal, from_str};
+use reqwest::{Client, header::HeaderMap};
+use rust_decimal::{Decimal};
 use serde_json_path::JsonPath;
 use serde_json::{Number, Value, from_str};
 use chrono::{DateTime, Utc};
 
 use crate::{config::CandleFields, domain::Candle};
-
-mod fields {
-const TIMESTAMP: &str = "timestamp";
-const OPEN: &str = "open";
-const HIGH: &str = "high";
-const LOW: &str = "low";
-const CLOSE: &str = "close";
-const VOLUME: &str = "volume";
-}
 
 #[async_trait::async_trait]
 pub trait CandleProvider {
@@ -38,14 +29,14 @@ impl HttpCandleProvider {
         let high_vec = Self::get_decimals(&self.fields_config.high, value)?;
         let low_vec = Self::get_decimals(&self.fields_config.low, value)?;
         let close_vec = Self::get_decimals(&self.fields_config.close, value)?;
-        let volume_vec = self.fields_config.volume.map(|v| Self::get_decimals(v.as_str(), value));
+        let volume_vec = self.fields_config.volume.as_ref().map(|v| Self::get_decimals(v.as_str(), value)).transpose()?;
 
         let timestamps_len = timestamp_vec.len();
         let opens_len = open_vec.len();
         let highs_len = high_vec.len();
         let lows_len = low_vec.len();
         let closes_len = close_vec.len();
-        let volumes_len = volume_vec.map_or(0, |v| v.len());
+        let volumes_len = volume_vec.as_ref().map_or(0, |v| v.len());
 
         if timestamps_len == opens_len && opens_len == highs_len && highs_len == lows_len && lows_len == closes_len && (volumes_len == 0 || (closes_len == volumes_len)) {
             let mut candles: Vec<Candle> = Vec::with_capacity(timestamps_len);
@@ -56,13 +47,14 @@ impl HttpCandleProvider {
                     low: low_vec[i],
                     high: high_vec[i],
                     close: close_vec[i],
-                    volume: volume_vec.map_or(None, |v| Some(v[i]))
+                    volume: volume_vec.as_ref().map_or(None, |v| Some(v[i]))
                 };
                 candles.push(candle);
             }
-            candles
+            Ok(candles)
         } else {
-            bail!("Could not create candles - lengths mismatch (timestamps={}, opens={}, highs={}, lows={}, closes={}{})", timestamps_len, opens_len, highs_len, lows_len, closes_len, if volumes_len == 0 {""} else {format!(", volumes={}", volumes_len).as_str()});
+            let volume_len_str = if volumes_len == 0 {String::new()} else {format!(", volumes={}", volumes_len)};
+            bail!("Could not create candles - lengths mismatch (timestamps={}, opens={}, highs={}, lows={}, closes={}{})", timestamps_len, opens_len, highs_len, lows_len, closes_len, volume_len_str)
         }
     }
 
@@ -80,7 +72,11 @@ impl HttpCandleProvider {
     fn get_decimals(path_str: &str, value: &Value) -> Result<Vec<Decimal>> {
         let path = JsonPath::parse(path_str)?;
         let nodes = path.query(value).all();
-        Ok(nodes.into_iter().map(|v| Self::value_to_decimal(v)?).collect())
+        let mut decimals = Vec::new();
+        for v in nodes {
+            decimals.push(Self::value_to_decimal(v)?);
+        }
+        Ok(decimals)
     }
 
     fn value_to_timestamp(value: &Value) -> Result<DateTime<Utc>> {
