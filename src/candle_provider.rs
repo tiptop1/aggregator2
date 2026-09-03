@@ -1,15 +1,15 @@
-use anyhow::{Result, bail, anyhow};
-use reqwest::{Client, header::HeaderMap};
-use rust_decimal::{Decimal};
-use serde_json_path::JsonPath;
-use serde_json::{Number, Value, from_str};
+use anyhow::{Result, anyhow, bail};
 use chrono::{DateTime, Utc};
+use reqwest::{Client, header::HeaderMap};
+use rust_decimal::Decimal;
+use serde_json::{Number, Value, from_str};
+use serde_json_path::JsonPath;
 
 use crate::{config::CandleFields, domain::Candle};
 
 #[async_trait::async_trait]
 pub trait CandleProvider {
-    async fn get_candles(&self) -> Result<Vec<Candle>>; 
+    async fn get_candles(&self) -> Result<Vec<Candle>>;
 }
 
 #[derive(Debug)]
@@ -17,7 +17,7 @@ pub struct HttpCandleProvider {
     client: Client,
     url: String,
     headers: Option<HeaderMap>,
-    fields_config: CandleFields
+    fields_config: CandleFields,
 }
 
 impl HttpCandleProvider {
@@ -29,7 +29,12 @@ impl HttpCandleProvider {
         let high_vec = Self::get_decimals(&self.fields_config.high, value)?;
         let low_vec = Self::get_decimals(&self.fields_config.low, value)?;
         let close_vec = Self::get_decimals(&self.fields_config.close, value)?;
-        let volume_vec = self.fields_config.volume.as_ref().map(|v| Self::get_decimals(v.as_str(), value)).transpose()?;
+        let volume_vec = self
+            .fields_config
+            .volume
+            .as_ref()
+            .map(|v| Self::get_decimals(v.as_str(), value))
+            .transpose()?;
 
         let timestamps_len = timestamp_vec.len();
         let opens_len = open_vec.len();
@@ -38,7 +43,12 @@ impl HttpCandleProvider {
         let closes_len = close_vec.len();
         let volumes_len = volume_vec.as_ref().map_or(0, |v| v.len());
 
-        if timestamps_len == opens_len && opens_len == highs_len && highs_len == lows_len && lows_len == closes_len && (volumes_len == 0 || (closes_len == volumes_len)) {
+        if timestamps_len == opens_len
+            && opens_len == highs_len
+            && highs_len == lows_len
+            && lows_len == closes_len
+            && (volumes_len == 0 || (closes_len == volumes_len))
+        {
             let mut candles: Vec<Candle> = Vec::with_capacity(timestamps_len);
             for i in 0..timestamps_len {
                 let candle = Candle {
@@ -47,14 +57,26 @@ impl HttpCandleProvider {
                     low: low_vec[i],
                     high: high_vec[i],
                     close: close_vec[i],
-                    volume: volume_vec.as_ref().map_or(None, |v| Some(v[i]))
+                    volume: volume_vec.as_ref().map_or(None, |v| Some(v[i])),
                 };
                 candles.push(candle);
             }
             Ok(candles)
         } else {
-            let volume_len_str = if volumes_len == 0 {String::new()} else {format!(", volumes={}", volumes_len)};
-            bail!("Could not create candles - lengths mismatch (timestamps={}, opens={}, highs={}, lows={}, closes={}{})", timestamps_len, opens_len, highs_len, lows_len, closes_len, volume_len_str)
+            let volume_len_str = if volumes_len == 0 {
+                String::new()
+            } else {
+                format!(", volumes={}", volumes_len)
+            };
+            bail!(
+                "Could not create candles - lengths mismatch (timestamps={}, opens={}, highs={}, lows={}, closes={}{})",
+                timestamps_len,
+                opens_len,
+                highs_len,
+                lows_len,
+                closes_len,
+                volume_len_str
+            )
         }
     }
 
@@ -64,7 +86,6 @@ impl HttpCandleProvider {
         let mut timestamps: Vec<DateTime<Utc>> = Vec::with_capacity(nodes.len());
         for n in &nodes {
             timestamps.push(Self::value_to_timestamp(n)?);
-
         }
         Ok(timestamps)
     }
@@ -81,23 +102,31 @@ impl HttpCandleProvider {
 
     fn value_to_timestamp(value: &Value) -> Result<DateTime<Utc>> {
         match value {
-            Value::Number(millis) => Self::millis_to_timestamp(millis).map_err(|_| anyhow!("Could not convert milliseconds {} to timestamp", millis)),
-            _ => bail!("Could not convert value {} to timestamp", value.as_str().unwrap_or_else(|| "?"))
+            Value::Number(millis) => Self::millis_to_timestamp(millis)
+                .map_err(|_| anyhow!("Could not convert milliseconds {} to timestamp", millis)),
+            _ => bail!(
+                "Could not convert value {} to timestamp",
+                value.as_str().unwrap_or_else(|| "?")
+            ),
         }
     }
 
     fn value_to_decimal(value: &Value) -> Result<Decimal> {
         match value {
-            Value::Number(number) => Decimal::from_str_exact(&number.to_string()).map_err(|_| anyhow!("Could not convert number {} to decimal", number)),
-            _ => bail!("Could not convert value {} to decimal", value.as_str().unwrap_or_else(|| "?"))
+            Value::Number(number) => Decimal::from_str_exact(&number.to_string())
+                .map_err(|_| anyhow!("Could not convert number {} to decimal", number)),
+            _ => bail!(
+                "Could not convert value {} to decimal",
+                value.as_str().unwrap_or_else(|| "?")
+            ),
         }
     }
 
     fn millis_to_timestamp(millis: &Number) -> Result<DateTime<Utc>> {
         millis
-        .as_i64()
-        .and_then(DateTime::from_timestamp_millis)
-        .ok_or_else(|| anyhow::anyhow!("Invalid timestamp millis: {millis}"))
+            .as_i64()
+            .and_then(DateTime::from_timestamp_millis)
+            .ok_or_else(|| anyhow::anyhow!("Invalid timestamp millis: {millis}"))
     }
 }
 
@@ -118,5 +147,4 @@ impl CandleProvider for HttpCandleProvider {
             bail!("HTTP status: {}, body: {}", resp_status.as_str(), resp_text);
         }
     }
-
 }
