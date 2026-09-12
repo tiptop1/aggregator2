@@ -148,3 +148,75 @@ impl CandleProvider for HttpCandleProvider {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn check_ohlc_creation() {
+        let mock_server = MockServer::start().await;
+
+        // Load JSON payload from fixtures
+        let mock_json = include_str!("../tests/fixtures/btc-ohlc.json");
+
+        Mock::given(method("GET"))
+            .and(path("x"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(mock_json, "application/json"))
+            .mount(&mock_server)
+            .await;
+
+        let client = Client::new();
+        let url = format!("{}/x", mock_server.uri());
+        let headers = None;
+        let fields_config = CandleFields {
+            timestamp: String::from("$[*][0]"),
+            open: String::from("$[*][1]"),
+            high: String::from("$[*][2]"),
+            low: String::from("$[*][3]"),
+            close: String::from("$[*][4]"),
+            volume: None,
+        };
+        let provider = HttpCandleProvider {
+            client,
+            url,
+            headers,
+            fields_config,
+        };
+
+        let candles = provider.get_candles().await;
+        assert!(candles.is_ok());
+        let candles = candles.unwrap();
+        assert_eq!(48, candles.len(), "candles length is incorrect");
+
+        let first_candle = candles.get(0).unwrap();
+        assert_eq!(
+            DateTime::from_timestamp_millis(1788953400000).unwrap(),
+            first_candle.timestamp,
+            "timestamp mismatch"
+        );
+        assert_eq!(
+            Decimal::from_str_exact("78930.0").unwrap(),
+            first_candle.open,
+            "open price mismatch"
+        );
+        assert_eq!(
+            Decimal::from_str_exact("78937.0").unwrap(),
+            first_candle.high,
+            "high price mismatch"
+        );
+        assert_eq!(
+            Decimal::from_str_exact("78764.0").unwrap(),
+            first_candle.low,
+            "low price mismatch"
+        );
+        assert_eq!(
+            Decimal::from_str_exact("78937.0").unwrap(),
+            first_candle.close,
+            "close price mismatch"
+        );
+    }
+}
