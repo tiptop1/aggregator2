@@ -21,4 +21,5 @@ serde = { version = "1.0", features = ["derive"] }
 toml = "1.1.2"
 
 [dev-dependencies]
+tempfile = "3.27.0"
 wiremock = "0.6.5"
