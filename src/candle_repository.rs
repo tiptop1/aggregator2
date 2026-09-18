@@ -138,11 +138,7 @@ impl RedbCandleRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::Candle;
-    use chrono::{DateTime, NaiveDateTime, Utc};
     use tempfile::tempdir;
-
-    const DATE_TIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
 
     #[tokio::test]
     async fn check_candle_repository() {
@@ -151,21 +147,19 @@ mod tests {
         let mut db = RedbCandleRepository::new(file_path).await.unwrap();
 
         let exp_symbol1 = "BTC";
-        let exp_candle11: Candle = create_candle(
+        let exp_candle11 = candle!(
             "2026-09-17 12:13:14",
-            "750123.13",
-            "76432.65",
-            "73956.23",
-            "74654.94",
-            None,
+            750123.13,
+            76432.65,
+            73956.23,
+            74654.94
         );
-        let exp_candle12: Candle = create_candle(
+        let exp_candle12 = candle!(
             "2026-09-17 15:16:17",
-            "750123.13",
-            "76432.65",
-            "73956.23",
-            "74654.94",
-            None,
+            750123.13,
+            76432.65,
+            73956.23,
+            74654.94
         );
 
         db.insert(
@@ -176,21 +170,21 @@ mod tests {
         .unwrap();
 
         let exp_symbol2 = "ETH";
-        let exp_candle21: Candle = create_candle(
+        let exp_candle21 = candle!(
             "2026-09-17 20:20:20",
-            "1800.01",
-            "1800.02",
-            "1800.03",
-            "1800.04",
-            Some("123"),
+            1800.01,
+            1800.02,
+            1800.03,
+            1800.04,
+            123
         );
-        let exp_candle22: Candle = create_candle(
+        let exp_candle22 = candle!(
             "2026-09-17 21:21:21",
-            "1801.11",
-            "1801.22",
-            "1801.33",
-            "1801.44",
-            Some("456"),
+            1801.11,
+            1801.22,
+            1801.33,
+            1801.44,
+            456
         );
 
         db.insert(
@@ -203,7 +197,7 @@ mod tests {
         let candles = db
             .get(
                 exp_symbol1,
-                to_datetime("2026-09-01 00:00:00")..to_datetime("2026-09-30 23:59:59"),
+                datetime!("2026-09-01 00:00:00")..datetime!("2026-09-30 23:59:59"),
             )
             .await
             .unwrap();
@@ -214,35 +208,12 @@ mod tests {
         let candles = db
             .get(
                 exp_symbol2,
-                to_datetime("2026-09-01 00:00:00")..to_datetime("2026-09-30 23:59:59"),
+                datetime!("2026-09-01 00:00:00")..datetime!("2026-09-30 23:59:59"),
             )
             .await
             .unwrap();
         assert_eq!(candles.len(), 2);
         assert_eq!(&exp_candle21, candles.get(0).unwrap());
         assert_eq!(&exp_candle22, candles.get(1).unwrap());
-    }
-
-    fn create_candle(
-        timestamp: &str,
-        open: &str,
-        low: &str,
-        high: &str,
-        close: &str,
-        volume: Option<&str>,
-    ) -> Candle {
-        Candle {
-            timestamp: to_datetime(timestamp),
-            open: Decimal::from_str_exact(open).unwrap(),
-            low: Decimal::from_str_exact(low).unwrap(),
-            high: Decimal::from_str_exact(high).unwrap(),
-            close: Decimal::from_str_exact(close).unwrap(),
-            volume: volume.map(|v| Decimal::from_str_exact(v).unwrap()),
-        }
-    }
-
-    fn to_datetime(datetime_str: &str) -> DateTime<Utc> {
-        let naive_dt = NaiveDateTime::parse_from_str(datetime_str, DATE_TIME_FORMAT).unwrap();
-        naive_dt.and_utc()
     }
 }
