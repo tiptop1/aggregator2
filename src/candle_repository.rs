@@ -197,7 +197,7 @@ mod tests {
         let candles = db
             .get(
                 exp_symbol1,
-                datetime!("2026-09-01 00:00:00")..datetime!("2026-09-30 23:59:59"),
+                dt!("2026-09-01 00:00:00")..dt!("2026-09-30 23:59:59"),
             )
             .await
             .unwrap();
@@ -208,7 +208,7 @@ mod tests {
         let candles = db
             .get(
                 exp_symbol2,
-                datetime!("2026-09-01 00:00:00")..datetime!("2026-09-30 23:59:59"),
+                dt!("2026-09-01 00:00:00")..dt!("2026-09-30 23:59:59"),
             )
             .await
             .unwrap();
