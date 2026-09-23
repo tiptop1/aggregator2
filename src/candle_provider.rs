@@ -54,8 +54,8 @@ impl HttpCandleProvider {
                 let candle = Candle {
                     timestamp: timestamp_vec[i],
                     open: open_vec[i],
-                    low: low_vec[i],
                     high: high_vec[i],
+                    low: low_vec[i],
                     close: close_vec[i],
                     volume: volume_vec.as_ref().map_or(None, |v| Some(v[i])),
                 };
@@ -69,7 +69,7 @@ impl HttpCandleProvider {
                 format!(", volumes={}", volumes_len)
             };
             bail!(
-                "Could not create candles - lengths mismatch (timestamps={}, opens={}, highs={}, lows={}, closes={}{})",
+                "could not create candles - lengths mismatch (timestamps={}, opens={}, highs={}, lows={}, closes={}{})",
                 timestamps_len,
                 opens_len,
                 highs_len,
@@ -103,9 +103,9 @@ impl HttpCandleProvider {
     fn value_to_timestamp(value: &Value) -> Result<DateTime<Utc>> {
         match value {
             Value::Number(millis) => Self::millis_to_timestamp(millis)
-                .map_err(|_| anyhow!("Could not convert milliseconds {} to timestamp", millis)),
+                .map_err(|_| anyhow!("could not convert milliseconds {} to timestamp", millis)),
             _ => bail!(
-                "Could not convert value {} to timestamp",
+                "could not convert value {} to timestamp",
                 value.as_str().unwrap_or_else(|| "?")
             ),
         }
@@ -114,9 +114,11 @@ impl HttpCandleProvider {
     fn value_to_decimal(value: &Value) -> Result<Decimal> {
         match value {
             Value::Number(number) => Decimal::from_str_exact(&number.to_string())
-                .map_err(|_| anyhow!("Could not convert number {} to decimal", number)),
+                .map_err(|_| anyhow!("could not convert number {} to decimal", number)),
+            Value::String(string) => Decimal::from_str_exact(&string)
+                .map_err(|_| anyhow!("could not convert string {} to decimal", string)),
             _ => bail!(
-                "Could not convert value {} to decimal",
+                "could not convert value {} to decimal",
                 value.as_str().unwrap_or_else(|| "?")
             ),
         }
@@ -126,7 +128,7 @@ impl HttpCandleProvider {
         millis
             .as_i64()
             .and_then(DateTime::from_timestamp_millis)
-            .ok_or_else(|| anyhow::anyhow!("Invalid timestamp millis: {millis}"))
+            .ok_or_else(|| anyhow::anyhow!("invalid timestamp millis: {millis}"))
     }
 }
 
@@ -151,27 +153,14 @@ impl CandleProvider for HttpCandleProvider {
 
 #[cfg(test)]
 mod tests {
+    use rust_decimal_macros::dec;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use super::*;
 
     #[tokio::test]
-    async fn check_ohlc_creation() {
-        let mock_server = MockServer::start().await;
-
-        // Load JSON payload from fixtures
-        let mock_json = include_str!("../tests/fixtures/btc-ohlc.json");
-
-        Mock::given(method("GET"))
-            .and(path("x"))
-            .respond_with(ResponseTemplate::new(200).set_body_raw(mock_json, "application/json"))
-            .mount(&mock_server)
-            .await;
-
-        let client = Client::new();
-        let url = format!("{}/x", mock_server.uri());
-        let headers = None;
+    async fn check_coingecko_ohcl() {
         let fields_config = CandleFields {
             timestamp: String::from("$[*][0]"),
             open: String::from("$[*][1]"),
@@ -180,43 +169,82 @@ mod tests {
             close: String::from("$[*][4]"),
             volume: None,
         };
+        let candles = get_candles(
+            include_str!("../tests/fixtures/btc-ohlc-coingecko.json"),
+            &fields_config,
+        )
+        .await;
+
+        assert!(candles.is_ok(), "{:?}", candles.unwrap_err());
+        let candles = candles.unwrap();
+        assert_eq!(3, candles.len(), "candles length is incorrect");
+
+        let candle = candles.get(0).unwrap();
+        assert_eq!(
+            dt_ms!(1788953400000),
+            candle.timestamp,
+            "timestamp mismatch"
+        );
+        assert_eq!(dec!(78930), candle.open, "open price mismatch");
+        assert_eq!(dec!(78937), candle.high, "high price mismatch");
+        assert_eq!(dec!(78764), candle.low, "low price mismatch");
+        assert_eq!(dec!(78937), candle.close, "close price mismatch");
+    }
+
+    #[tokio::test]
+    async fn check_binance_ohlc() {
+        let fields_config = CandleFields {
+            timestamp: String::from("$[*][0]"),
+            open: String::from("$[*][1]"),
+            high: String::from("$[*][2]"),
+            low: String::from("$[*][3]"),
+            close: String::from("$[*][4]"),
+            volume: Some(String::from("$[*][5]")),
+        };
+        let candles = get_candles(
+            include_str!("../tests/fixtures/btc-ohlc-binance.json"),
+            &fields_config,
+        )
+        .await;
+
+        assert!(candles.is_ok(), "{:?}", candles.unwrap_err());
+
+        let candles = candles.unwrap();
+        assert_eq!(3, candles.len(), "candles length is incorrect");
+
+        let candle = candles.get(0).unwrap();
+        assert_eq!(
+            dt_ms!(1789344000000),
+            candle.timestamp,
+            "timestamp mismatch"
+        );
+        assert_eq!(dec!(76842.01), candle.open, "open price mismatch");
+        assert_eq!(dec!(79600), candle.high, "high price mismatch");
+        assert_eq!(dec!(76388.72), candle.low, "low price mismatch");
+        assert_eq!(dec!(78189.21), candle.close, "close price mismatch");
+        assert_eq!(Some(dec!(15413.48971)), candle.volume, "volume mismatch");
+    }
+
+    async fn get_candles(json_content: &str, fields_config: &CandleFields) -> Result<Vec<Candle>> {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("x"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(json_content, "application/json"))
+            .mount(&mock_server)
+            .await;
+
+        let client = Client::new();
+        let url = format!("{}/x", mock_server.uri());
+        let headers = None;
+
         let provider = HttpCandleProvider {
             client,
             url,
             headers,
-            fields_config,
+            fields_config: fields_config.clone(),
         };
 
-        let candles = provider.get_candles().await;
-        assert!(candles.is_ok());
-        let candles = candles.unwrap();
-        assert_eq!(48, candles.len(), "candles length is incorrect");
-
-        let first_candle = candles.get(0).unwrap();
-        assert_eq!(
-            DateTime::from_timestamp_millis(1788953400000).unwrap(),
-            first_candle.timestamp,
-            "timestamp mismatch"
-        );
-        assert_eq!(
-            Decimal::from_str_exact("78930.0").unwrap(),
-            first_candle.open,
-            "open price mismatch"
-        );
-        assert_eq!(
-            Decimal::from_str_exact("78937.0").unwrap(),
-            first_candle.high,
-            "high price mismatch"
-        );
-        assert_eq!(
-            Decimal::from_str_exact("78764.0").unwrap(),
-            first_candle.low,
-            "low price mismatch"
-        );
-        assert_eq!(
-            Decimal::from_str_exact("78937.0").unwrap(),
-            first_candle.close,
-            "close price mismatch"
-        );
+        provider.get_candles().await
     }
 }
