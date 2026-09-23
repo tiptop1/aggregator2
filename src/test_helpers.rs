@@ -1,4 +1,4 @@
-macro_rules! datetime {
+macro_rules! dt {
     ($datetime:expr) => {
         ::chrono::NaiveDateTime::parse_from_str($datetime, "%Y-%m-%d %H:%M:%S")
             .unwrap()
@@ -6,10 +6,16 @@ macro_rules! datetime {
     };
 }
 
+macro_rules! dt_ms {
+    ($ms:expr) => {
+        DateTime::<Utc>::from_timestamp_millis($ms).expect("incorrect millis value")
+    };
+}
+
 macro_rules! candle {
     ($timestamp:expr, $open:expr, $low:expr, $high:expr, $close:expr, $volume:expr) => {
         Candle {
-            timestamp: datetime!($timestamp),
+            timestamp: dt!($timestamp),
             open: ::rust_decimal_macros::dec!($open),
             low: ::rust_decimal_macros::dec!($low),
             high: ::rust_decimal_macros::dec!($high),
@@ -20,7 +26,7 @@ macro_rules! candle {
 
     ($timestamp:expr, $open:expr, $low:expr, $high:expr, $close:expr) => {
         Candle {
-            timestamp: datetime!($timestamp),
+            timestamp: dt!($timestamp),
             open: ::rust_decimal_macros::dec!($open),
             low: ::rust_decimal_macros::dec!($low),
             high: ::rust_decimal_macros::dec!($high),
