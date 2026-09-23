@@ -1,16 +1,16 @@
+use anyhow::Result;
 use serde::Deserialize;
 use std::collections::HashMap;
-use anyhow::Result;
-use std::path::PathBuf;
 use std::fs::read_to_string;
+use std::path::PathBuf;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     pub database_path: String,
     pub symbols: Vec<Symbol>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Symbol {
     pub name: String,
     pub url: String,
@@ -18,14 +18,14 @@ pub struct Symbol {
     pub candle_fields: CandleFields,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct CandleFields {
     pub timestamp: String,
     pub open: String,
     pub high: String,
     pub low: String,
     pub close: String,
-    pub volume: Option<String>
+    pub volume: Option<String>,
 }
 
 pub fn read_configuration(file_path: &PathBuf) -> Result<Config> {
