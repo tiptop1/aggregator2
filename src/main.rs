@@ -1,18 +1,18 @@
 use aggregator2::config::read_configuration;
 use anyhow::Result;
-use std::path::PathBuf;
 use std::env::{args, var_os};
+use std::path::PathBuf;
 
 const CONFIG_FILE: &str = "config.toml";
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let config_file = config_file();
-    let config= read_configuration(&config_file)?;
+    let config = read_configuration(&config_file).await?;
 
     println!("Database path: {}", config.database_path);
     println!("Fields open: {}", config.symbols[0].candle_fields.open);
-    
+
     Ok(())
 }
 
@@ -20,7 +20,7 @@ async fn main() -> Result<()> {
 /// if not found try to use config file from application argument,
 /// if not found try to use config file from current directory
 fn config_file() -> PathBuf {
-match var_os("OUT_DIR") {
+    match var_os("OUT_DIR") {
         Some(path) => PathBuf::from(path).join(CONFIG_FILE),
         None => {
             let args: Vec<String> = args().collect();
