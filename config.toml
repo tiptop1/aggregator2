@@ -3,10 +3,10 @@ database_path = "db.txt"
 
 [[symbols]]
 name = "BTC"
-url = "https://api.coingecko.com/api/v3/coins/bitcoin/ohlc?vs_currency=usd&days=1"
+url = "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=365"
 
-[symbols.http_headers]
-x-cg-demo-api-key = "${coingecko_api_key}"
+# [symbols.http_headers]
+# x-cg-demo-api-key = "${coingecko_api_key}"
 
 [symbols.candle_fields]
 timestamp = "$[*][0]"
@@ -14,13 +14,28 @@ open = "$[*][1]"
 high = "$[*][2]"
 low = "$[*][3]"
 close = "$[*][4]"
+volume = "$[*][5]"
+
+[[symbols.report_elements]]
+type = "last_candle"
+caption = "Last price"
+[[symbols.report_elements]]
+type = "candle_chart"
+period = "daily"
+limit = 90
+caption = "Last 90 days"
+[[symbols.report_elements]]
+type = "candle_chart"
+period = "monthly"
+limit = 12
+caption = "Last 12 months"
 
 [[symbols]]
 name = "ETH"
-url = "https://api.coingecko.com/api/v3/coins/ethereum/ohlc?vs_currency=usd&days=1"
+url = "https://api.binance.com/api/v3/klines?symbol=ETHUSDT&interval=1d&limit=365"
 
-[symbols.http_headers]
-x-cg-demo-api-key = "${coingecko_api_key}"
+# [symbols.http_headers]
+# x-cg-demo-api-key = "${coingecko_api_key}"
 
 [symbols.candle_fields]
 timestamp = "$[*][0]"
@@ -28,3 +43,18 @@ open = "$[*][1]"
 high = "$[*][2]"
 low = "$[*][3]"
 close = "$[*][4]"
+volume = "$[*][5]"
+
+[[symbols.report_elements]]
+type = "last_candle"
+caption = "Last price"
+[[symbols.report_elements]]
+type = "candle_chart"
+period = "daily"
+limit = 90
+caption = "Last 90 days"
+[[symbol.report_elements]]
+type = "candle_chart"
+period = "monthly"
+limit = 12
+caption = "Last 12 months"
