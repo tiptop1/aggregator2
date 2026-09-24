@@ -7,12 +7,12 @@ use std::path::{Path, PathBuf};
 use crate::domain::Candle;
 
 #[async_trait::async_trait]
-pub trait CandleRenderer {
+pub trait CandleChartRenderer {
     async fn render(&self, candles: &Vec<Candle>) -> Result<()>;
 }
 
 #[derive(Debug)]
-pub struct FileCandleRenderer {
+pub struct FileCandleChartRenderer {
     path: PathBuf,
     caption: String,
     width: u32,
@@ -20,7 +20,7 @@ pub struct FileCandleRenderer {
 }
 
 #[async_trait::async_trait]
-impl CandleRenderer for FileCandleRenderer {
+impl CandleChartRenderer for FileCandleChartRenderer {
     async fn render(&self, candles: &Vec<Candle>) -> Result<()> {
         let candles_len = candles.len();
         if candles_len > 0 {
@@ -71,9 +71,9 @@ impl CandleRenderer for FileCandleRenderer {
     }
 }
 
-impl FileCandleRenderer {
+impl FileCandleChartRenderer {
     fn new(path: impl AsRef<Path>, caption: &str, width: u32, height: u32) -> Self {
-        FileCandleRenderer {
+        FileCandleChartRenderer {
             path: path.as_ref().to_path_buf(),
             caption: String::from(caption),
             width,
@@ -124,7 +124,8 @@ mod tests {
                 79000.13
             ),
         ];
-        let renderer = FileCandleRenderer::new("candle_chart_without_volme.png", "BTC", 800, 600);
+        let renderer =
+            FileCandleChartRenderer::new("candle_chart_without_volme.png", "BTC", 800, 600);
         renderer.render(&candles).await.unwrap();
     }
 }
