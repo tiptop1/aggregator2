@@ -1,6 +1,15 @@
 # Test comment
 database_path = "db.txt"
 
+[smtp_config]
+server = "${smtp_server}"
+port = 587
+# security = "tls"
+username = "${smtp_login}"
+password = "${smtp_passwd}"
+from_email = "${smtp_from_email}"
+to_emails = "${smtp_to_emails}"
+
 [[symbols]]
 name = "BTC"
 url = "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=365"
