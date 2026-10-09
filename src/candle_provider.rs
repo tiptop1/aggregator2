@@ -14,10 +14,10 @@ pub trait CandleProvider {
 
 #[derive(Debug)]
 pub struct HttpCandleProvider {
-    client: Client,
-    url: String,
-    headers: Option<HeaderMap>,
-    fields_config: CandleFields,
+    pub client: Client,
+    pub url: String,
+    pub headers: Option<HeaderMap>,
+    pub fields_config: CandleFields,
 }
 
 impl HttpCandleProvider {
@@ -57,7 +57,7 @@ impl HttpCandleProvider {
                     high: high_vec[i],
                     low: low_vec[i],
                     close: close_vec[i],
-                    volume: volume_vec.as_ref().map_or(None, |v| Some(v[i])),
+                    volume: volume_vec.as_ref().map(|v| v[i]),
                 };
                 candles.push(candle);
             }
@@ -106,7 +106,7 @@ impl HttpCandleProvider {
                 .map_err(|_| anyhow!("could not convert milliseconds {} to timestamp", millis)),
             _ => bail!(
                 "could not convert value {} to timestamp",
-                value.as_str().unwrap_or_else(|| "?")
+                value.as_str().unwrap_or("?")
             ),
         }
     }
@@ -115,11 +115,11 @@ impl HttpCandleProvider {
         match value {
             Value::Number(number) => Decimal::from_str_exact(&number.to_string())
                 .map_err(|_| anyhow!("could not convert number {} to decimal", number)),
-            Value::String(string) => Decimal::from_str_exact(&string)
+            Value::String(string) => Decimal::from_str_exact(string)
                 .map_err(|_| anyhow!("could not convert string {} to decimal", string)),
             _ => bail!(
                 "could not convert value {} to decimal",
-                value.as_str().unwrap_or_else(|| "?")
+                value.as_str().unwrap_or("?")
             ),
         }
     }
