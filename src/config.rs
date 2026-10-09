@@ -6,8 +6,19 @@ use std::path::Path;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
+    pub smtp: SmtpConfig,
     pub database_path: String,
     pub symbols: Vec<Symbol>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct SmtpConfig {
+    pub server: String,
+    pub port: u16,
+    pub username: String,
+    pub password: String,
+    pub from_email: String,
+    pub to_emails: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
