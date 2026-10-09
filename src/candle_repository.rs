@@ -16,9 +16,10 @@ pub trait CandleRepository {
     where
         R: RangeBounds<DateTime<Utc>> + Send + 'static;
 
-    async fn insert(&mut self, symbol: &str, candles: &Vec<Candle>) -> Result<()>;
+    async fn insert(&self, symbol: &str, candles: &[Candle]) -> Result<()>;
 }
 
+#[derive(Clone)]
 pub struct RedbCandleRepository {
     db: Arc<Database>,
 }
@@ -73,7 +74,7 @@ impl CandleRepository for RedbCandleRepository {
         Ok(handle.await??)
     }
 
-    async fn insert(&mut self, symbol: &str, candles: &Vec<Candle>) -> Result<()> {
+    async fn insert(&self, symbol: &str, candles: &[Candle]) -> Result<()> {
         let db = self.db.clone();
         let symbol_owned = symbol.to_string();
         let candles_owned = candles.to_vec();
@@ -98,13 +99,13 @@ impl CandleRepository for RedbCandleRepository {
 }
 
 impl RedbCandleRepository {
-    async fn new(path: impl AsRef<Path>) -> Result<Self> {
+    pub async fn new(path: impl AsRef<Path>) -> Result<Self> {
         let path_buf: PathBuf = path.as_ref().to_path_buf();
         let handle = task::spawn_blocking(move || -> Result<RedbCandleRepository> {
             let db = Database::create(path_buf)?;
             Ok(Self { db: Arc::new(db) })
         });
-        Ok(handle.await??)
+        handle.await?
     }
 
     fn to_millis_range<V>(range: V) -> impl RangeBounds<i64>
@@ -144,7 +145,7 @@ mod tests {
     async fn check_candle_repository() {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("temp-candles.redb");
-        let mut db = RedbCandleRepository::new(file_path).await.unwrap();
+        let db = RedbCandleRepository::new(file_path).await.unwrap();
 
         let exp_symbol1 = "BTC";
         let exp_candle11 = candle!(
