@@ -1,14 +1,12 @@
 use super::domain::Candle;
 use anyhow::{Result, anyhow, bail};
 use chrono::{DateTime, Utc};
-use redb::{Database, ReadableDatabase, TableDefinition};
+use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use rust_decimal::Decimal;
 use std::ops::{Bound, RangeBounds};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::task;
-
-type Tabdef = TableDefinition<'static, i64, &'static [u8]>;
 
 #[async_trait::async_trait]
 pub trait CandleRepository {
@@ -17,6 +15,8 @@ pub trait CandleRepository {
         R: RangeBounds<DateTime<Utc>> + Send + 'static;
 
     async fn insert(&self, symbol: &str, candles: &[Candle]) -> Result<()>;
+
+    async fn last_candle(&self, symbol: &str) -> Result<Option<Candle>>;
 }
 
 #[derive(Clone)]
@@ -34,44 +34,38 @@ impl CandleRepository for RedbCandleRepository {
         let symbol_owned = symbol.to_string();
         let handle = task::spawn_blocking(move || -> Result<Vec<Candle>> {
             let read_txn = db.begin_read()?;
-            let tabdef: Tabdef = TableDefinition::new(Box::leak(symbol_owned.into_boxed_str()));
+            let tabdef: TableDefinition<i64, &[u8]> = TableDefinition::new(&symbol_owned);
             let table = read_txn.open_table(tabdef)?;
             let iter = table.range(Self::to_millis_range(range))?;
             let mut candles = Vec::new();
             for record in iter {
                 let result = record?;
                 let millis = result.0.value();
-                let timestamp_opt: Option<DateTime<Utc>> = DateTime::from_timestamp_millis(millis);
-                let timestamp =
-                    timestamp_opt.ok_or_else(|| anyhow!("could not create timesamp"))?;
-
                 let fields = result.1.value();
-                let fields_len = fields.len();
-                let volume: Option<Decimal>;
-                if fields_len == (16 * 4) {
-                    volume = None;
-                } else if fields_len == (16 * 5) {
-                    let bytes: [u8; 16] = fields[fields_len - 16..].try_into()?;
-                    volume = Some(Decimal::deserialize(bytes));
-                } else {
-                    bail!("Fields length invalid");
-                }
-                let open = Decimal::deserialize(fields[0..16].try_into()?);
-                let low = Decimal::deserialize(fields[16..32].try_into()?);
-                let high = Decimal::deserialize(fields[32..48].try_into()?);
-                let close = Decimal::deserialize(fields[48..64].try_into()?);
-                candles.push(Candle {
-                    timestamp,
-                    open,
-                    low,
-                    high,
-                    close,
-                    volume,
-                });
+                candles.push(Self::to_candle(millis, fields)?);
             }
             Ok(candles)
         });
-        Ok(handle.await??)
+        handle.await?
+    }
+
+    async fn last_candle(&self, symbol: &str) -> Result<Option<Candle>> {
+        let db = self.db.clone();
+        let symbol_owned = symbol.to_string();
+        let handle = task::spawn_blocking(move || -> Result<Option<Candle>> {
+            let read_txn = db.begin_read()?;
+            let tabdef: TableDefinition<i64, &[u8]> = TableDefinition::new(&symbol_owned);
+            let table = read_txn.open_table(tabdef)?;
+            if let Some(result) = table.iter()?.rev().next() {
+                let result = result?;
+                let millis = result.0.value();
+                let fields = result.1.value();
+                Ok(Some(Self::to_candle(millis, fields)?))
+            } else {
+                Ok(None)
+            }
+        });
+        handle.await?
     }
 
     async fn insert(&self, symbol: &str, candles: &[Candle]) -> Result<()> {
@@ -83,7 +77,7 @@ impl CandleRepository for RedbCandleRepository {
             let write_txt = db.begin_write()?;
 
             {
-                let tabdef: Tabdef = TableDefinition::new(Box::leak(symbol_owned.into_boxed_str()));
+                let tabdef: TableDefinition<i64, &[u8]> = TableDefinition::new(&symbol_owned);
                 let mut table = write_txt.open_table(tabdef)?;
                 for c in &candles_owned {
                     table.insert(Self::get_db_key(c), Self::get_db_value(c).as_slice())?;
@@ -94,7 +88,7 @@ impl CandleRepository for RedbCandleRepository {
             Ok(())
         });
 
-        Ok(handle.await??)
+        handle.await?
     }
 }
 
@@ -133,6 +127,34 @@ impl RedbCandleRepository {
             value.extend(volume.serialize());
         }
         value
+    }
+
+    fn to_candle(millis: i64, fields: &[u8]) -> Result<Candle> {
+        let timestamp_opt: Option<DateTime<Utc>> = DateTime::from_timestamp_millis(millis);
+        let timestamp = timestamp_opt.ok_or_else(|| anyhow!("could not create timesamp"))?;
+
+        let fields_len = fields.len();
+        let volume: Option<Decimal>;
+        if fields_len == (16 * 4) {
+            volume = None;
+        } else if fields_len == (16 * 5) {
+            let bytes: [u8; 16] = fields[fields_len - 16..].try_into()?;
+            volume = Some(Decimal::deserialize(bytes));
+        } else {
+            bail!("Fields length invalid");
+        }
+        let open = Decimal::deserialize(fields[0..16].try_into()?);
+        let low = Decimal::deserialize(fields[16..32].try_into()?);
+        let high = Decimal::deserialize(fields[32..48].try_into()?);
+        let close = Decimal::deserialize(fields[48..64].try_into()?);
+        Ok(Candle {
+            timestamp,
+            open,
+            low,
+            high,
+            close,
+            volume,
+        })
     }
 }
 
