@@ -102,8 +102,8 @@ pub struct ReportEmailBuilder {
 }
 
 impl ReportEmailBuilder {
-    fn builder() -> Self {
-        ReportEmailBuilder {
+    pub fn new() -> Self {
+        Self {
             html_body: String::new(),
             images: Vec::new(),
         }
@@ -115,12 +115,12 @@ impl ReportEmailBuilder {
             .expect("failed to write to String");
     }
 
-    fn html(mut self, html: &str) -> Self {
+    pub fn html(&mut self, html: &str) -> &mut Self {
         self.html_body.push_str(html);
         self
     }
 
-    fn candle(mut self, candle: &Candle) -> Self {
+    pub fn candle(&mut self, candle: &Candle) -> &mut Self {
         self.write_fmt(
             format_args!(
                 "<p>timestamp: {}<br>open price: {}<br>high price: {}<br>low price: {}<br>close price: {}<br>",
@@ -138,13 +138,13 @@ impl ReportEmailBuilder {
         self
     }
 
-    fn image(mut self, image: Image) -> Self {
+    pub fn image(&mut self, image: Image) -> &mut Self {
         self.write_fmt(format_args!("<img src=\"cid:{}\" />", &image.cid));
         self.images.push(image);
         self
     }
 
-    async fn send(self, subject: &str, smtp_config: &SmtpConfig) -> Result<()> {
+    pub async fn send(self, subject: &str, smtp_config: &SmtpConfig) -> Result<()> {
         let mut multipart = MultiPart::related().singlepart(SinglePart::html(self.html_body));
         for i in self.images {
             let image_part = SinglePart::builder()
