@@ -1,13 +1,16 @@
 use aggregator2::candle_provider::{CandleProvider, HttpCandleProvider};
 use aggregator2::candle_repository::{CandleRepository, RedbCandleRepository};
 use aggregator2::cli::Args;
-use aggregator2::config::{Config, read_configuration};
+use aggregator2::config::{ChartPeriod, Config, ReportElementType, read_configuration};
+use aggregator2::report::ReportEmailBuilder;
 use anyhow::Result;
+use chrono::{DateTime, Datelike, Duration, Months, Utc};
 use clap::Parser;
 use reqwest::{
     Client,
     header::{HeaderMap, HeaderName, HeaderValue},
 };
+use rust_decimal::prelude::ToPrimitive;
 use std::collections::HashMap;
 use std::env::var_os;
 use std::path::PathBuf;
@@ -30,22 +33,43 @@ async fn main() -> Result<()> {
         load_candles(&config, &repo).await?;
     }
 
-    // if args.report {
-    //     let mut report = String::new();
-    //     for s in &config.symbols {
-    //         let report_elements = s.report_elements;
-    //         let earlier_timestamp = find_earlier_timestamp(&report_elements);
-    //         let candles = repo.get(&s.name, earlier_timestamp..Utc::now());
-    //         for re in &report_elements {
-    //             let report_type = re.report_element_type();
-    //             match report_type {
-    //                 ReportElementType::LastCandle => {}
-    //                 ReportElementType::CandleChart { period, limit } => {}
-    //             }
-    //         }
-    //     }
-    //     send_report(report);
-    // }
+    if args.report {
+        let mut email_builder = ReportEmailBuilder::new();
+
+        for symbol in config.symbols.iter() {
+            let mut last_candle = None;
+            let mut min_timestamp = None;
+            for report_element in symbol.report_elements.iter() {
+                // Discover how many data get from repository
+                match &report_element.element_type {
+                    ReportElementType::LastCandle => {
+                        last_candle = repo.last_candle(&symbol.name).await?
+                    }
+                    ReportElementType::CandleChart { period, limit } => {
+                        let timestamp = to_timestamp(period, *limit);
+                        if min_timestamp > timestamp {
+                            min_timestamp = timestamp;
+                        }
+                    }
+                }
+            }
+
+            let mut candles = Vec::new();
+            if last_candle.is_some() && last_candle.as_ref().map(|c| c.timestamp) < min_timestamp {
+                if let Some(last_candle) = last_candle {
+                    candles.push(last_candle)
+                }
+            } else {
+                if let Some(min_timestamp) = min_timestamp {
+                    candles = repo.get(&symbol.name, min_timestamp..Utc::now()).await?;
+                }
+            }
+
+            email_builder.html(&format!("<h1>{}</h1>", &symbol.name));
+
+            for report_elemement in symbol.report_elements.iter() {}
+        }
+    }
 
     Ok(())
 }
@@ -109,5 +133,27 @@ fn to_header_map(headers: Option<HashMap<String, String>>) -> Option<HeaderMap<H
         Some(header_map)
     } else {
         None
+    }
+}
+
+fn to_timestamp(period: &ChartPeriod, limit: u32) -> Option<DateTime<Utc>> {
+    let curr_timestamp = Utc::now();
+    match period {
+        ChartPeriod::Daily => {
+            let shifted = curr_timestamp.checked_sub_signed(Duration::days(limit.to_i64()?))?;
+            shifted
+                .date_naive()
+                .and_hms_opt(0, 0, 0)
+                .map(|naive_dt| naive_dt.and_utc())
+        }
+        ChartPeriod::Monthly => {
+            let shifted = curr_timestamp.checked_sub_months(Months::new(limit))?;
+            shifted
+                .date_naive()
+                .with_day(1)
+                .map(|naive_dt| naive_dt.and_hms_opt(0, 0, 0))
+                .flatten()
+                .map(|naive_dt| naive_dt.and_utc())
+        }
     }
 }
