@@ -8,12 +8,19 @@ use plotters::prelude::*;
 use plotters::style::full_palette::{GREEN_500, RED_500};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
+use std::collections::HashMap;
 use std::fmt::Write;
 use std::io::Cursor;
+use uuid::Uuid;
 
 const MARGIN: f64 = 0.1;
 
-async fn png_chart(candles: &[Candle], caption: &str, width: u32, height: u32) -> Result<Vec<u8>> {
+pub async fn png_chart(
+    candles: &[Candle],
+    caption: &str,
+    width: u32,
+    height: u32,
+) -> Result<Vec<u8>> {
     let candles_len = candles.len();
     if candles_len > 0 {
         let mut raw_pixels = vec![0u8; (width * height * 3) as usize];
@@ -91,24 +98,29 @@ async fn png_chart(candles: &[Candle], caption: &str, width: u32, height: u32) -
 }
 
 pub struct Image {
-    bytes: Vec<u8>,
-    cid: String,
-    content_type: String,
+    pub bytes: Vec<u8>,
+    pub image_type: ImageType,
 }
 
+pub enum ImageType {
+    Png,
+}
+
+impl ImageType {
+    fn as_content_type(&self) -> &str {
+        match self {
+            Self::Png => "image/png",
+        }
+    }
+}
+
+#[derive(Default)]
 pub struct ReportEmailBuilder {
     html_body: String,
-    images: Vec<Image>,
+    images: HashMap<Uuid, Image>,
 }
 
 impl ReportEmailBuilder {
-    pub fn new() -> Self {
-        Self {
-            html_body: String::new(),
-            images: Vec::new(),
-        }
-    }
-
     fn write_fmt(&mut self, args: std::fmt::Arguments) {
         self.html_body
             .write_fmt(args)
@@ -139,22 +151,23 @@ impl ReportEmailBuilder {
     }
 
     pub fn image(&mut self, image: Image) -> &mut Self {
-        self.write_fmt(format_args!("<img src=\"cid:{}\" />", &image.cid));
-        self.images.push(image);
+        let cid = Uuid::new_v4();
+        self.write_fmt(format_args!("<img src=\"cid:{}\" />", &cid));
+        self.images.insert(cid, image);
         self
     }
 
     pub async fn send(self, subject: &str, smtp_config: &SmtpConfig) -> Result<()> {
         let mut multipart = MultiPart::related().singlepart(SinglePart::html(self.html_body));
-        for i in self.images {
+        for (cid, image) in self.images {
             let image_part = SinglePart::builder()
-                .header(ContentType::parse(&i.content_type)?)
+                .header(ContentType::parse(image.image_type.as_content_type())?)
                 // Kluczowe: ustawiamy Content-ID w ujęciu <id>
                 .header(lettre::message::header::ContentId::from(format!(
                     "<{}>",
-                    i.cid
+                    &cid
                 )))
-                .body(i.bytes);
+                .body(image.bytes);
             multipart = multipart.singlepart(image_part);
         }
 
