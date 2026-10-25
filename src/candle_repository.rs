@@ -56,7 +56,7 @@ impl CandleRepository for RedbCandleRepository {
             let read_txn = db.begin_read()?;
             let tabdef: TableDefinition<i64, &[u8]> = TableDefinition::new(&symbol_owned);
             let table = read_txn.open_table(tabdef)?;
-            if let Some(result) = table.iter()?.rev().next() {
+            if let Some(result) = table.iter()?.next_back() {
                 let result = result?;
                 let millis = result.0.value();
                 let fields = result.1.value();
