@@ -5,7 +5,7 @@ use aggregator2::config::{ChartPeriod, Config, ReportElementType, read_configura
 use aggregator2::domain::Candle;
 use aggregator2::report::{Image, ImageType, ReportEmailBuilder, png_chart};
 use anyhow::{Result, anyhow};
-use chrono::{DateTime, Datelike, Duration, Months, Utc};
+use chrono::{DateTime, Datelike, Duration, Months, TimeZone, Utc};
 use clap::Parser;
 use reqwest::{
     Client,
@@ -15,21 +15,15 @@ use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 use std::cmp::{max, min};
 use std::collections::{HashMap, VecDeque};
-use std::env::var_os;
-use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
-
-const CONFIG_FILE: &str = "config.toml";
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
 
-    let config_file = config_file(&args);
-
-    let config = Arc::new(read_configuration(&config_file).await?);
+    let config = Arc::new(read_configuration(&args.config_file).await?);
     let repo = Arc::new((RedbCandleRepository::new(&config.database_path)).await?);
 
     if args.load {
@@ -38,15 +32,18 @@ async fn main() -> Result<()> {
 
     if args.report {
         let mut email_builder = ReportEmailBuilder::default();
+        email_builder.html("<html>");
 
         for symbol in config.symbols.iter() {
+            email_builder.html(&format!("<h1>{}</h1>", &symbol.name));
+
             let mut last_candle = None;
-            let mut min_timestamp = None;
+            let mut min_timestamp = Some(DateTime::<Utc>::MAX_UTC);
             for report_element in symbol.report_elements.iter() {
                 // Discover how many data get from repository
                 match &report_element.element_type {
                     ReportElementType::LastCandle => {
-                        last_candle = repo.last_candle(&symbol.name).await?
+                        last_candle = repo.last_candle(&symbol.name).await?;
                     }
                     ReportElementType::CandleChart { period, limit } => {
                         let timestamp = to_timestamp(
@@ -64,30 +61,22 @@ async fn main() -> Result<()> {
             }
 
             let mut candles = Vec::new();
-            if last_candle.is_some() && last_candle.as_ref().map(|c| c.timestamp) < min_timestamp {
-                if let Some(last_candle) = last_candle {
-                    candles.push(last_candle)
-                }
-            } else {
-                if let Some(min_timestamp) = min_timestamp {
-                    candles = repo.get(&symbol.name, min_timestamp..Utc::now()).await?;
-                }
+            if let Some(min_timestamp) = min_timestamp {
+                candles = repo.get(&symbol.name, min_timestamp..Utc::now()).await?;
             }
-
-            email_builder.html(&format!("<h1>{}</h1>", &symbol.name));
 
             for e in symbol.report_elements.iter() {
                 let caption = &e.caption;
                 email_builder.html(&format!("<h2>{}</h2>", caption));
                 match &e.element_type {
                     ReportElementType::LastCandle => {
-                        if let Some(last_candle) = candles.last() {
-                            email_builder.candle(last_candle);
+                        if let Some(candle) = last_candle.as_ref() {
+                            email_builder.candle(candle);
                         }
                     }
                     ReportElementType::CandleChart { period, limit } => {
                         let chart_bytes = png_chart(
-                            &aggregate_candles(
+                            &aggregate_candles2(
                                 &candles,
                                 period,
                                 limit.to_i32().ok_or(anyhow!(format!(
@@ -98,6 +87,7 @@ async fn main() -> Result<()> {
                             caption,
                             800,
                             800,
+                            period
                         )
                         .await?;
                         let image = Image {
@@ -109,21 +99,13 @@ async fn main() -> Result<()> {
                 }
             }
         }
+        email_builder.html("</html>");
         email_builder
             .send("[Aggregator2] Report", &config.smtp)
             .await?;
     }
 
     Ok(())
-}
-
-/// Try to find config file in OUT_DIR (useful in development time),
-/// if not found try to use config file from application argument.
-fn config_file(args: &Args) -> PathBuf {
-    match var_os("OUT_DIR") {
-        Some(path) => PathBuf::from(path).join(CONFIG_FILE),
-        None => PathBuf::from(&args.config_file),
-    }
 }
 
 async fn load_candles<R>(config: &Arc<Config>, repo: &Arc<R>) -> Result<()>
@@ -183,80 +165,65 @@ fn to_timestamp(period: &ChartPeriod, limit: i32) -> Option<DateTime<Utc>> {
     let curr_timestamp = Utc::now();
     match period {
         ChartPeriod::Daily => {
-            let shifted = shift_by_days(&curr_timestamp, limit)?;
+            let shifted = shift_by_days(&curr_timestamp, -limit)?;
             to_start_of_day(&shifted)
         }
         ChartPeriod::Monthly => {
-            let shifted = shift_by_months(&curr_timestamp, limit)?;
+            let shifted = shift_by_months(&curr_timestamp, -limit)?;
             to_start_of_month(&shifted)
         }
     }
 }
 
-fn aggregate_candles(candles: &[Candle], period: &ChartPeriod, limit: i32) -> Vec<Candle> {
-    let mut aggr_candles = VecDeque::new();
-    let lowest_timestamp = to_timestamp(period, limit);
-    if let Some(lowest_timestamp) = lowest_timestamp {
-        let mut low = Decimal::MAX;
-        let mut high = Decimal::MIN;
-        let mut open = Decimal::ZERO;
-        let mut close = Decimal::ZERO;
-        let mut volume = Decimal::ZERO;
-        let mut timestamp_start = None;
-        let mut timestamp_end = None;
-        for c in candles.iter().rev() {
-            let timestamp = c.timestamp;
-            if timestamp >= lowest_timestamp {
-                if timestamp_start.is_none() && timestamp_end.is_none() {
-                    match period {
-                        ChartPeriod::Daily => {
-                            timestamp_end = to_start_of_day(&timestamp);
-                            if let Some(timestamp_end) = timestamp_end {
-                                timestamp_start = shift_by_days(&timestamp_end, -1);
-                            }
-                        }
-                        ChartPeriod::Monthly => {
-                            timestamp_end = to_start_of_month(&timestamp);
-                            if let Some(timestamp_end) = timestamp_end {
-                                timestamp_start = shift_by_months(&timestamp_end, -1);
-                            }
-                        }
-                    }
-                    open = c.open;
-                }
-                if timestamp_start.is_some_and(|timestamp_start| timestamp >= timestamp_start)
-                    && timestamp_end.is_some_and(|timestamp_end| timestamp < timestamp_end)
-                {
-                    low = min(low, c.low);
-                    high = max(high, c.high);
-                    close = c.close;
-                    volume += c.volume.map_or(Decimal::ZERO, |v| v);
+fn aggregate_candles2(candles: &[Candle], period: &ChartPeriod, limit: i32) -> Vec<Candle> {
+    let mut aggregates = VecDeque::new();
+    if let Some(lowest_timestamp) = to_timestamp(period, limit) {
+        let mut curr_aggregate: Option<Candle> = None;
+        let mut prev_aggregate = None;
+        let mut prev_start = None;
+        let mut counter = 0;
+        for curr_candle in candles.iter().rev().filter(|c| c.timestamp >= lowest_timestamp) {
+            counter += 1;
+            let curr_timestamp = curr_candle.timestamp;
+            dbg!(curr_timestamp);
+
+            let curr_start = period_start(&curr_timestamp, period);
+            if prev_start.is_none() {
+                prev_start = curr_start.clone();
+            }
+            dbg!(prev_start, curr_start);
+
+            if prev_start == curr_start {
+                if let Some(ca) = &mut curr_aggregate {
+                    ca.low = min(ca.low, curr_candle.low);
+                    ca.high = max(ca.high, curr_candle.high);
+                    ca.close = curr_candle.close;
+                    ca.volume = match ca.volume {
+                        Some(v) => Some(v + curr_candle.volume.unwrap_or(Decimal::ZERO)),
+                        None => curr_candle.volume,
+                    };
                 } else {
-                    if let Some(timestamp) = timestamp_end {
-                        let aggregate = Candle {
-                            timestamp,
-                            open,
-                            low,
-                            high,
-                            close,
-                            volume: if volume > Decimal::ZERO {
-                                Some(volume)
-                            } else {
-                                None
-                            },
-                        };
-                        aggr_candles.push_front(aggregate);
-                    }
-                    timestamp_start = None;
-                    timestamp_end = None;
-                    volume = Decimal::ZERO;
+                    curr_aggregate = Some(curr_candle.clone());
                 }
             } else {
-                break;
+                if let Some(aggregate) = prev_aggregate {
+                    aggregates.push_front(aggregate);
+                }
+                curr_aggregate = Some(curr_candle.clone());               
+                prev_start = curr_start;
             }
-        }
+            prev_aggregate = curr_aggregate.clone();
+          }
+        dbg!(counter);
     }
-    Vec::from(aggr_candles)
+    Vec::from(aggregates) 
+}
+
+fn period_start(timestamp: &DateTime<Utc>, period: &ChartPeriod) -> Option<DateTime<Utc>> {
+    match period {
+        ChartPeriod::Daily => to_start_of_day(timestamp),
+        ChartPeriod::Monthly => to_start_of_month(timestamp)
+    }
 }
 
 fn shift_by_days(timestamp: &DateTime<Utc>, days_shift: i32) -> Option<DateTime<Utc>> {
@@ -271,7 +238,7 @@ fn shift_by_months(timestamp: &DateTime<Utc>, months_shift: i32) -> Option<DateT
     if months_shift >= 0 {
         timestamp.checked_add_months(Months::new(months_shift.to_u32()?))
     } else {
-        timestamp.checked_sub_months(Months::new(months_shift.to_u32()?))
+        timestamp.checked_sub_months(Months::new((-months_shift).to_u32()?))
     }
 }
 
@@ -282,10 +249,44 @@ fn to_start_of_day(timestamp: &DateTime<Utc>) -> Option<DateTime<Utc>> {
         .map(|naive_dt| naive_dt.and_utc())
 }
 
+fn to_end_of_day(timestamp: &DateTime<Utc>) -> Option<DateTime<Utc>> {
+    timestamp
+        .date_naive()
+        .and_hms_milli_opt(23, 59, 59, 999)
+        .map(|naive_dt| naive_dt.and_utc())
+}
+
 fn to_start_of_month(timestamp: &DateTime<Utc>) -> Option<DateTime<Utc>> {
     timestamp
         .date_naive()
         .with_day(1)
         .and_then(|naive_dt| naive_dt.and_hms_opt(0, 0, 0))
         .map(|naive_dt| naive_dt.and_utc())
+}
+
+fn to_end_of_month(dt: &DateTime<Utc>) -> Option<DateTime<Utc>> {
+    let year = dt.year();
+    let month = dt.month();
+
+    // Wyznaczamy rok i miesiąc następnego miesiąca
+    let (next_year, next_month) = if month == 12 {
+        (year + 1, 1)
+    } else {
+        (year, month + 1)
+    };
+
+    // Pierwszy dzień następnego miesiąca o północy
+    let first_of_next_month = Utc
+        .with_ymd_and_hms(next_year, next_month, 1, 0, 0, 0)
+        .unwrap();
+
+    // Odejmujemy 1 dzień, aby uzyskać ostatni dzień bieżącego miesiąca
+    let last_day = first_of_next_month - Duration::days(1);
+
+    // Ustawiamy czas na 23:59:59 oraz 999 milisekund (ostatnia milisekunda)
+    let naive_date = last_day.date_naive();
+    let naive_time = chrono::NaiveTime::from_hms_milli_opt(23, 59, 59, 999).unwrap();
+    let naive_dt = chrono::NaiveDateTime::new(naive_date, naive_time);
+
+    Utc.from_local_datetime(&naive_dt).single()
 }

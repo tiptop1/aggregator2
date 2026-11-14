@@ -1,0 +1,20 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug with argument: --report",
+            "type": "lldb", // lub "lldb" jeśli używasz rozszerzenia VadimCN.vscode-lldb
+            "request": "launch",
+            // Ścieżka do Twojego pliku wykonywalnego generowanego przez Cargo:
+            "program": "${workspaceFolder}/target/debug/aggregator2",
+            // TUTAJ przekazujesz argumenty linii poleceń jako tablicę stringów:
+            "args": ["--config-file", "target/generated/config.toml", "--report"],
+            "cwd": "${workspaceFolder}",
+            "sourceLanguages": [
+                "rust"
+            ],
+            // Ważne: Dobrze jest połączyć debugowanie z wcześniejszym zbudowaniem projektu przez Cargo:
+            "preLaunchTask": "cargo build",
+        }
+    ]
+}

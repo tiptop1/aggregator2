@@ -87,7 +87,7 @@ mod tests {
         assert!(config.is_ok(), "{:#?}", config);
 
         let config = config.unwrap();
-        assert_eq!(config.database_path, "db.txt");
+        assert_eq!(config.database_path, "db.redb");
 
         let symbols = config.symbols;
         assert_eq!(symbols.len(), 2);

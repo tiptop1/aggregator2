@@ -1,3 +1,4 @@
+use crate::config::ChartPeriod::{self, Daily, Monthly};
 use crate::{config::SmtpConfig, domain::Candle};
 use anyhow::{Result, anyhow, bail};
 use image::{ColorType, ImageFormat};
@@ -20,6 +21,7 @@ pub async fn png_chart(
     caption: &str,
     width: u32,
     height: u32,
+    period: &ChartPeriod
 ) -> Result<Vec<u8>> {
     let candles_len = candles.len();
     if candles_len > 0 {
@@ -65,7 +67,11 @@ pub async fn png_chart(
                             .unwrap(),
                 )?;
 
-            chart.configure_mesh().draw()?;
+            let timestamp_format = match period {
+                Daily => "%Y-%m-%d",
+                Monthly => "%Y-%m"
+            };
+            chart.configure_mesh().x_label_formatter(&|date| date.format(timestamp_format).to_string()).draw()?;
 
             chart.draw_series(candles.iter().map(|c| {
                 CandleStick::new(
@@ -152,17 +158,17 @@ impl ReportEmailBuilder {
 
     pub fn image(&mut self, image: Image) -> &mut Self {
         let cid = Uuid::new_v4();
-        self.write_fmt(format_args!("<img src=\"cid:{}\" />", &cid));
+        self.write_fmt(format_args!("<img src=\"cid:{}\"/>", &cid));
         self.images.insert(cid, image);
         self
     }
 
     pub async fn send(self, subject: &str, smtp_config: &SmtpConfig) -> Result<()> {
-        let mut multipart = MultiPart::related().singlepart(SinglePart::html(self.html_body));
+        let mut multipart =
+            MultiPart::related().singlepart(SinglePart::html(self.html_body.clone()));
         for (cid, image) in self.images {
             let image_part = SinglePart::builder()
                 .header(ContentType::parse(image.image_type.as_content_type())?)
-                // Kluczowe: ustawiamy Content-ID w ujęciu <id>
                 .header(lettre::message::header::ContentId::from(format!(
                     "<{}>",
                     &cid
@@ -242,7 +248,7 @@ mod tests {
                 79000.13
             ),
         ];
-        let png_buffer = png_chart(&candles, "BTC", 800, 600).await.unwrap();
+        let png_buffer = png_chart(&candles, "BTC", 800, 600, &ChartPeriod::Daily).await.unwrap();
         write("candle_chart_without_volume.png", png_buffer)
             .await
             .unwrap();

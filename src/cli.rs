@@ -7,7 +7,7 @@ pub struct Args {
     #[arg(
         short,
         long,
-        default_value = "config.tomr",
+        default_value = "config.toml",
         help = "Configuration file paht."
     )]
     pub config_file: String,

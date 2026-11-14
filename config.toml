@@ -1,10 +1,11 @@
 # Test comment
-database_path = "db.txt"
+database_path = "db.redb"
 
-[smtp_config]
-server = "${smtp_server}"
+[smtp]
+# server = "${smtp_server}"
 port = 587
-# security = "tls"
+security = "tls"
+server = "smtp.gmail.com"
 username = "${smtp_login}"
 password = "${smtp_passwd}"
 from_email = "${smtp_from_email}"
