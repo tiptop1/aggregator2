@@ -5,7 +5,7 @@ use aggregator2::config::{ChartPeriod, Config, ReportElementType, read_configura
 use aggregator2::domain::Candle;
 use aggregator2::report::{Image, ImageType, ReportEmailBuilder, png_chart};
 use anyhow::{Result, anyhow};
-use chrono::{DateTime, Datelike, Duration, Months, TimeZone, Utc};
+use chrono::{DateTime, Datelike, Duration, Months, Utc};
 use clap::Parser;
 use reqwest::{
     Client,
@@ -181,17 +181,13 @@ fn aggregate_candles2(candles: &[Candle], period: &ChartPeriod, limit: i32) -> V
         let mut curr_aggregate: Option<Candle> = None;
         let mut prev_aggregate = None;
         let mut prev_start = None;
-        let mut counter = 0;
         for curr_candle in candles.iter().rev().filter(|c| c.timestamp >= lowest_timestamp) {
-            counter += 1;
             let curr_timestamp = curr_candle.timestamp;
-            dbg!(curr_timestamp);
 
             let curr_start = period_start(&curr_timestamp, period);
             if prev_start.is_none() {
                 prev_start = curr_start.clone();
             }
-            dbg!(prev_start, curr_start);
 
             if prev_start == curr_start {
                 if let Some(ca) = &mut curr_aggregate {
@@ -214,7 +210,6 @@ fn aggregate_candles2(candles: &[Candle], period: &ChartPeriod, limit: i32) -> V
             }
             prev_aggregate = curr_aggregate.clone();
           }
-        dbg!(counter);
     }
     Vec::from(aggregates) 
 }
@@ -249,44 +244,10 @@ fn to_start_of_day(timestamp: &DateTime<Utc>) -> Option<DateTime<Utc>> {
         .map(|naive_dt| naive_dt.and_utc())
 }
 
-fn to_end_of_day(timestamp: &DateTime<Utc>) -> Option<DateTime<Utc>> {
-    timestamp
-        .date_naive()
-        .and_hms_milli_opt(23, 59, 59, 999)
-        .map(|naive_dt| naive_dt.and_utc())
-}
-
 fn to_start_of_month(timestamp: &DateTime<Utc>) -> Option<DateTime<Utc>> {
     timestamp
         .date_naive()
         .with_day(1)
         .and_then(|naive_dt| naive_dt.and_hms_opt(0, 0, 0))
         .map(|naive_dt| naive_dt.and_utc())
-}
-
-fn to_end_of_month(dt: &DateTime<Utc>) -> Option<DateTime<Utc>> {
-    let year = dt.year();
-    let month = dt.month();
-
-    // Wyznaczamy rok i miesiąc następnego miesiąca
-    let (next_year, next_month) = if month == 12 {
-        (year + 1, 1)
-    } else {
-        (year, month + 1)
-    };
-
-    // Pierwszy dzień następnego miesiąca o północy
-    let first_of_next_month = Utc
-        .with_ymd_and_hms(next_year, next_month, 1, 0, 0, 0)
-        .unwrap();
-
-    // Odejmujemy 1 dzień, aby uzyskać ostatni dzień bieżącego miesiąca
-    let last_day = first_of_next_month - Duration::days(1);
-
-    // Ustawiamy czas na 23:59:59 oraz 999 milisekund (ostatnia milisekunda)
-    let naive_date = last_day.date_naive();
-    let naive_time = chrono::NaiveTime::from_hms_milli_opt(23, 59, 59, 999).unwrap();
-    let naive_dt = chrono::NaiveDateTime::new(naive_date, naive_time);
-
-    Utc.from_local_datetime(&naive_dt).single()
 }
